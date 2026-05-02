@@ -1,0 +1,5 @@
+BACKEND_PRISMA/node_modules/
+BACKEND_PRISMA/.env
+BACKEND_PRISMA/uploads/
+FRONTEND_PRISMA/node_modules/
+FRONTEND_PRISMA/dist/
