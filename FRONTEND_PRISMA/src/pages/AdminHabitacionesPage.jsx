@@ -60,7 +60,26 @@ const AdminHabitacionesPage = () => {
   }
 
   const handleChange = (e) => {
-    setForm({ ...form, [e.target.name]: e.target.value })
+    const { name, value } = e.target
+
+
+    const camposNumericos = ["capacidad_personas", "precio_noche", "numero"]
+
+    if (camposNumericos.includes(name)) {
+      if (value === '') {
+        setForm({ ...form, [name]: '' })
+        return
+      }
+
+      const numero = Number(value)
+
+      if (numero < 0) {
+        setForm({ ...form, [name]: 0 }) 
+        return
+      }
+    }
+
+    setForm({ ...form, [name]: value })
   }
 
   const abrirDialogCrear = () => {
