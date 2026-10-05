@@ -63,7 +63,29 @@ const SedeHabitacionesPage = () => {
   }, [id_sede])
 
   const handleChange = (e) => {
-    setForm({ ...form, [e.target.name]: e.target.value })
+    const { name, value } = e.target
+
+    if (name === "cantidad_personas") {
+      if (value === '') {
+        setForm({ ...form, [name]: '' })
+        return
+      }
+
+      const numero = Number(value)
+
+      if (numero < 0) {
+        setForm({ ...form, [name]: 0 })
+        return
+      }
+
+
+      if (habitacionSeleccionada && numero > habitacionSeleccionada.capacidad_personas) {
+        setForm({ ...form, [name]: habitacionSeleccionada.capacidad_personas })
+        return
+      }
+    }
+
+    setForm({ ...form, [name]: value })
   }
 
   const abrirDialog = (habitacion) => {
