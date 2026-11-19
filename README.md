@@ -1,557 +1,409 @@
-# Documentación Técnica — Proyecto Prisma Hotel
+# 🏨 Prisma Hotel
 
-## Stack Tecnológico
+Aplicación web full-stack (stack **PERN**) para gestionar sedes, habitaciones y reservas de una cadena hotelera en Colombia. Proyecto académico de Ingeniería de Software III — Universidad Libre, Pereira.
 
-| Capa             | Tecnología |
-|------------------|------------|
-| Frontend         | React + Vite + Material UI |
-| Backend          | Express (Node.js)          |
-| Base de datos    | PostgreSQL                 |
-| Autenticación    | JWT + bcryptjs             |
-
-Este stack se conoce como **PERN** (PostgreSQL, Express, React, Node.js).
+- **Clientes**: ven las sedes y habitaciones, consultan el detalle, reservan con calendario (fechas ocupadas bloqueadas), pagan y cancelan sus reservas.
+- **Administradores**: gestionan sedes, habitaciones (con subida de imágenes), reservas y estado de pago.
 
 ---
 
-## 1. Autenticación y Seguridad
+## Tabla de contenido
 
-### 1.1 ¿Por qué necesitamos autenticación?
+1. [Tecnologías](#tecnologías)
+2. [Estructura del repositorio](#estructura-del-repositorio)
+3. [Requisitos previos](#requisitos-previos)
+4. [Instalación paso a paso](#instalación-paso-a-paso)
+5. [Usuarios de prueba](#usuarios-de-prueba)
+6. [Base de datos y relaciones](#base-de-datos-y-relaciones)
+7. [Arquitectura del backend](#arquitectura-del-backend)
+8. [Autenticación y roles](#autenticación-y-roles)
+9. [Librerías utilizadas](#librerías-utilizadas)
+10. [Flujos principales](#flujos-principales)
+11. [Pruebas](#pruebas)
+12. [Problemas comunes](#problemas-comunes)
 
-HTTP es un protocolo **sin memoria**. Cada petición que hace el frontend al backend es completamente independiente — el servidor no recuerda quién hizo la petición anterior. Esto genera un problema: ¿cómo sabe el servidor quién está logueado y qué permisos tiene?
+---
 
-La solución es el **JWT (JSON Web Token)**.
+## Tecnologías
 
-### 1.2 bcryptjs — Encriptación de contraseñas
+| Capa          | Tecnología                          |
+| ------------- | ----------------------------------- |
+| Frontend      | React + Vite + Material UI (MUI v9) |
+| Backend       | Node.js + Express 5                 |
+| Base de datos | PostgreSQL                          |
+| Autenticación | JWT + bcryptjs                      |
 
-Nunca se guarda una contraseña en texto plano en la base de datos. Si alguien accede a la BD, vería las contraseñas directamente.
+---
 
-**bcryptjs** convierte la contraseña en un hash irreversible:
-
-```
-"1234" → "$2b$10$0cEF2ftM3GMptY/j2SN9O.06lH9T8HeceDClZys6E/BoZhw2aqsXm"
-```
-
-- `bcrypt.hash(contraseña, 10)` — encripta. El `10` son las "rondas" de encriptación (más alto = más seguro pero más lento).
-- `bcrypt.compare(contraseña, hash)` — compara la contraseña ingresada con el hash guardado. Devuelve `true` o `false`. No hay forma de "desencriptar" bcrypt.
-
-### 1.3 JWT — JSON Web Token
-
-#### ¿Qué es?
-
-Es como una **manilla de evento**. Cuando el usuario hace login, el servidor le da una manilla (token). En cada petición siguiente, el usuario presenta esa manilla en lugar de volver a ingresar sus credenciales.
-
-#### Analogía completa
-
-```
-1. Usuario llega al concierto → muestra cédula (correo + contraseña)
-2. Portero verifica y da una manilla (genera el token)
-3. Para entrar a zona VIP → muestra la manilla (manda el token)
-4. La manilla vence a las 8 horas (expiresIn: '8h')
-```
-
-#### ¿Cómo se ve un token?
+## Estructura del repositorio
 
 ```
-eyJhbGciOiJIUzI1NiJ9.eyJpZCI6MSwiY29ycmVvIjoianVhbkBnbWFpbC5jb20iLCJyb2wiOiJjbGllbnRlIn0.xyz123
-```
-
-Son tres partes separadas por puntos:
-
-```
-HEADER . PAYLOAD . FIRMA
-```
-
-- **Header** — algoritmo de firma usado (HS256)
-- **Payload** — los datos: id, correo, rol, cuándo vence
-- **Firma** — generada con el JWT_SECRET, garantiza que nadie modificó el token
-
-#### ¿Cómo funciona el secreto?
-
-El `JWT_SECRET` es una palabra clave que solo el servidor conoce. Al generar el token, los datos se "mezclan matemáticamente" con ese secreto para crear la firma. Si alguien modifica el token (por ejemplo para cambiar su rol de "cliente" a "admin"), la firma ya no coincide y el servidor lo rechaza.
-
-```javascript
-// Generar token
-const token = jwt.sign(
-  { id: usuario.id, correo: usuario.correo, rol },
-  process.env.JWT_SECRET,
-  { expiresIn: '8h' }
-)
-
-// Verificar token
-const decoded = jwt.verify(token, process.env.JWT_SECRET)
-```
-
-### 1.4 Manejo de Roles
-
-El sistema tiene dos roles: `cliente` y `admin`.
-
-**¿Cómo se asigna el rol?**
-
-Al hacer login, el backend busca el correo primero en la tabla `cliente`, luego en `administrador`. Según en cuál tabla lo encuentre, asigna el rol correspondiente en el JWT.
-
-**¿Cómo se protegen las rutas?**
-
-Con dos middlewares encadenados:
-
-```javascript
-router.get('/dashboard', verificarToken, soloAdmin, getDashboard)
-//                          ↑                ↑
-//                    ¿Token válido?    ¿Es admin?
-```
-
-1. `verificarToken` — lee el token del header, lo verifica con el secreto y guarda los datos en `req.usuario`
-2. `soloAdmin` / `soloCliente` — lee `req.usuario.rol` y decide si deja pasar o no
-
-**Diferencia entre 401 y 403:**
-- `401 Unauthorized` — "No sé quién eres" (token inválido o ausente)
-- `403 Forbidden` — "Sé quién eres pero no tienes permiso" (rol incorrecto)
-
-### 1.5 localStorage — Persistencia de sesión
-
-El token JWT vive en memoria (useState). Si el usuario recarga la página, React se reinicia y pierde el token → el usuario queda deslogueado.
-
-Para evitarlo, guardamos el token en `localStorage`, que persiste aunque se recargue:
-
-```javascript
-// Al hacer login
-localStorage.setItem('token', token)
-localStorage.setItem('rol', rol)
-
-// Al iniciar la app
-const [token, setToken] = useState(localStorage.getItem('token') || null)
-
-// Al cerrar sesión
-localStorage.removeItem('token')
-localStorage.removeItem('rol')
+prisma-hotel/
+├── BACKEND_PRISMA/
+│   ├── controllers/      # Lógica de negocio
+│   ├── models/           # Consultas SQL (pg)
+│   ├── routes/           # Definición de endpoints
+│   ├── middlewares/      # verificarToken, soloAdmin, soloCliente
+│   ├── database/         # conexion.js (Pool de pg)
+│   ├── utils/            # calculos.js (noches, totales)
+│   ├── tests/            # Pruebas unitarias (Jest)
+│   ├── uploads/          # Imágenes subidas por el admin (se crea al usar la app)
+│   └── index.js          # Punto de entrada del servidor
+├── FRONTEND_PRISMA/
+│   └── src/
+│       ├── pages/        # Páginas (Home, Login, detalle, reservas, admin...)
+│       ├── components/   # Navbar, Footer, RutaProtegida, CalendarioReserva...
+│       ├── services/     # Llamadas a la API con axios
+│       ├── context/      # AuthContext (sesión global)
+│       └── theme.js      # Tema de Material UI
+├── e2e/                  # Pruebas end-to-end (Playwright)
+├── database.sql          # Script completo de la base de datos
+└── README.md
 ```
 
 ---
 
-## 2. Arquitectura del Backend
+## Requisitos previos
 
-### 2.1 Estructura de capas
+| Herramienta        | Versión recomendada         | Verificar con    |
+| ------------------ | --------------------------- | ---------------- |
+| Node.js            | 18 o superior (incluye npm) | `node -v`        |
+| PostgreSQL         | 14 o superior               | `psql --version` |
+| Git                | cualquiera reciente         | `git --version`  |
+| pgAdmin (opcional) | cualquiera                  | —                |
 
-```
-Petición HTTP
-      ↓
-   Router (routes/)          → ¿A qué función va esta petición?
-      ↓
-  Middleware (middlewares/)  → ¿Tiene token? ¿Tiene el rol correcto?
-      ↓
-  Controlador (controllers/) → Lógica de negocio, toma decisiones
-      ↓
-   Modelo (models/)          → Habla con PostgreSQL
-      ↓
-  PostgreSQL
-```
+---
 
-### 2.2 Pool de conexiones (pg)
+## Instalación paso a paso
 
-En lugar de abrir y cerrar una conexión por cada consulta (lento), el `Pool` mantiene varias conexiones abiertas y las presta cuando se necesitan:
+### 1. Clonar el repositorio
 
-```javascript
-const pool = new Pool({
-  host: process.env.DB_HOST,
-  user: process.env.DB_USER,
-  password: process.env.DB_PASSWORD,
-  database: process.env.DB_NAME
-})
-
-// Usar el pool
-const resultado = await pool.query('SELECT * FROM cliente WHERE correo = $1', [correo])
+```bash
+git clone https://github.com/Beto874874/prisma-hotel.git
+cd prisma-hotel
 ```
 
-Los `$1, $2...` son **placeholders** que evitan SQL Injection. En lugar de concatenar strings directamente en el SQL, los valores se pasan separados y pg los inserta de forma segura.
+### 2. Crear la base de datos
 
-### 2.3 Variables de entorno (.env)
+**Opción A — pgAdmin**
 
-Las credenciales nunca van escritas en el código. Van en `.env`:
+1. Clic derecho en _Databases_ → _Create_ → _Database…_ → nombre: `prisma_hotel` → _Save_.
+2. Clic derecho sobre `prisma_hotel` → _Query Tool_.
+3. Abre el archivo `database.sql` (icono de carpeta), ejecútalo con el botón ▶.
 
+**Opción B — terminal**
+
+```bash
+psql -U postgres -c "CREATE DATABASE prisma_hotel;"
+psql -U postgres -d prisma_hotel -f database.sql
 ```
+
+El script crea todas las tablas y carga datos iniciales: 3 sedes, 9 habitaciones, sus imágenes y un administrador.
+
+### 3. Configurar y arrancar el backend
+
+```bash
+cd BACKEND_PRISMA
+npm install
+```
+
+Crea un archivo llamado `.env` dentro de `BACKEND_PRISMA/` (no se sube a GitHub):
+
+```env
 DB_HOST=localhost
 DB_USER=postgres
-DB_PASSWORD=micontraseña
+DB_PASSWORD=tu_contraseña_de_postgres
+DB_NAME=prisma_hotel
 JWT_SECRET=prisma_hotel_secret_2024
 PORT=5000
 ```
 
-Esto protege la información sensible y facilita cambiar configuraciones sin tocar el código.
+Arranca el servidor:
 
-### 2.4 Multer — Subida de imágenes
-
-Las imágenes no se pueden mandar como JSON. Necesitan ir como `multipart/form-data`. **Multer** es el middleware que procesa ese tipo de petición:
-
-```javascript
-const storage = multer.diskStorage({
-  destination: (req, file, cb) => cb(null, 'uploads/sedes'),
-  filename: (req, file, cb) => cb(null, `${Date.now()}${path.extname(file.originalname)}`)
-})
+```bash
+npm run dev      # con nodemon (reinicia al guardar)
+# o bien
+node index.js
 ```
 
-- Guarda el archivo en la carpeta `uploads/`
-- Le asigna un nombre único basado en el timestamp para evitar duplicados
-- El backend sirve esos archivos estáticamente: `app.use('/uploads', express.static('uploads'))`
+Debe quedar escuchando en **http://localhost:5000**.
 
-### 2.5 Métodos HTTP
+### 4. Arrancar el frontend
 
-| Método | Uso                                   |
-|--------|---------------------------------------|
-| GET    | Obtener datos                         |
-| POST   | Crear un nuevo recurso                |
-| PUT    | Actualizar un recurso completo        |
-| PATCH  | Actualizar solo una parte del recurso |
-| DELETE | Eliminar un recurso                   |
+Abre **otra terminal**:
 
-**PATCH vs PUT:** `PUT` reemplaza todo el objeto, `PATCH` solo modifica los campos indicados. Usamos `PATCH` para cambiar el estado de una habitación o el estado de pago de una reserva.
+```bash
+cd FRONTEND_PRISMA
+npm install
+npm run dev
+```
+
+Abre **http://localhost:5173** en el navegador.
+
+> Importante: backend (5000) y frontend (5173) deben estar corriendo al mismo tiempo, y PostgreSQL encendido.
 
 ---
 
-## 3. Arquitectura del Frontend
+## Usuarios de prueba
 
-### 3.1 React + Vite
+El `database.sql` crea un administrador:
 
-**Vite** es la herramienta de construcción — más rápida que Create React App. **React** es la librería de interfaz de usuario.
+| Rol           | Correo               | Contraseña |
+| ------------- | -------------------- | ---------- |
+| Administrador | juanaaa874@gmail.com | 874874     |
 
-#### ¿Cómo funciona React?
+Los clientes se crean desde la pantalla de **registro** de la app.
 
-React convierte componentes JSX en elementos del DOM. Cuando el estado cambia, React re-renderiza solo los componentes afectados (no recarga la página).
+### Dejar un solo cliente y un solo administrador (opcional)
 
-```jsx
-// Un componente es simplemente una función que devuelve JSX
-const MiComponente = () => {
-  const [contador, setContador] = useState(0)
-  
-  return <button onClick={() => setContador(contador + 1)}>{contador}</button>
-}
-```
-
-### 3.2 Context API — Estado global
-
-El problema: varios componentes necesitan saber quién está logueado (token, rol). Pasar esa información de componente en componente sería un caos.
-
-**Context** crea un "estado global" accesible desde cualquier componente:
-
-```javascript
-// Crear el contexto
-const AuthContext = createContext()
-
-// Proveedor que envuelve toda la app
-export const AuthProvider = ({ children }) => {
-  const [token, setToken] = useState(localStorage.getItem('token') || null)
-  const [rol, setRol] = useState(localStorage.getItem('rol') || null)
-  // ...
-}
-
-// Hook para consumirlo fácilmente
-export const useAuth = () => useContext(AuthContext)
-
-// Usar en cualquier componente
-const { token, rol, login, logout } = useAuth()
-```
-
-### 3.3 React Router DOM — Navegación
-
-Permite tener múltiples "páginas" en React sin recargar el navegador:
-
-```jsx
-<Routes>
-  <Route path="/login" element={<LoginPage />} />
-  <Route path="/home" element={<HomePage />} />
-  <Route path="/admin" element={<AdminPage />} />
-</Routes>
-```
-
-**Rutas protegidas:** El componente `RutaProtegida` verifica si hay token y si el rol es el correcto antes de mostrar la página. Si no, redirige al login:
-
-```jsx
-const RutaProtegida = ({ children, rolRequerido }) => {
-  const { token, rol } = useAuth()
-  if (!token) return <Navigate to="/login" />
-  if (rolRequerido && rol !== rolRequerido) return <Navigate to="/login" />
-  return children
-}
-```
-
-### 3.4 Axios — Peticiones HTTP
-
-Axios es una librería para hacer peticiones HTTP desde el frontend. Es más cómodo que `fetch`:
-
-```javascript
-// Con fetch
-const respuesta = await fetch(url, {
-  method: 'POST',
-  headers: { 'Content-Type': 'application/json', 'Authorization': `Bearer ${token}` },
-  body: JSON.stringify(datos)
-})
-const data = await respuesta.json()
-
-// Con axios (equivalente, más limpio)
-const respuesta = await axios.post(url, datos, {
-  headers: { Authorization: `Bearer ${token}` }
-})
-const data = respuesta.data
-```
-
-Axios agrega automáticamente el `Content-Type: application/json`.
-
-### 3.5 Material UI (MUI v9)
-
-Librería de componentes pre-diseñados. En lugar de crear botones, cards e inputs desde cero, MUI los provee listos:
-
-```jsx
-<Button variant="contained" startIcon={<Add />}>Nueva sede</Button>
-<Card sx={{ borderRadius: 3, boxShadow: '0 4px 20px rgba(0,0,0,0.08)' }}>...</Card>
-<TextField label="Correo" type="email" fullWidth />
-```
-
-**Tema global:** Define colores y tipografías una sola vez y se aplican a toda la app:
-
-```javascript
-const theme = createTheme({
-  palette: {
-    primary: { main: '#2890BD' },
-    secondary: { main: '#D1F3FF' }
-  },
-  typography: {
-    fontFamily: 'Raleway, sans-serif',
-    h1: { fontFamily: 'Lato, sans-serif' }
-  }
-})
-```
-
-**Grid v9:** En MUI v9 el sistema de grid cambió su sintaxis:
-
-```jsx
-// MUI v9 (nueva sintaxis)
-<Grid container spacing={4}>
-  <Grid size={{ xs: 12, md: 4 }}>...</Grid>
-</Grid>
-
-// MUI v8 y anteriores (sintaxis vieja — NO usar)
-<Grid container spacing={4}>
-  <Grid item xs={12} md={4}>...</Grid>
-</Grid>
-```
-
----
-
-## 4. Librerías adicionales
-
-### 4.1 Swiper — Carruseles
-
-Librería para carruseles de imágenes profesionales con autoplay y paginación:
-
-```jsx
-<Swiper
-  modules={[Autoplay, Pagination]}
-  autoplay={{ delay: 3000 }}
-  pagination={{ clickable: true }}
-  loop={true}
->
-  {imagenes.map((img, index) => (
-    <SwiperSlide key={index}>
-      <img src={img} />
-    </SwiperSlide>
-  ))}
-</Swiper>
-```
-
-### 4.2 React Leaflet — Mapas
-
-Integración de OpenStreetMap (gratuito, sin API key) para mostrar la ubicación de cada sede:
-
-```jsx
-<MapContainer center={[10.3910, -75.4794]} zoom={13}>
-  <TileLayer url="https://{s}.tile.openstreetmap.org/{z}/{x}/{y}.png" />
-  <Marker position={coords}>
-    <Popup>Prisma Mar Cartagena</Popup>
-  </Marker>
-</MapContainer>
-```
-
-### 4.3 React Day Picker — Calendario
-
-Calendario interactivo para seleccionar rangos de fechas. Permite bloquear días pasados y fechas ya reservadas:
-
-```jsx
-<DayPicker
-  mode="range"
-  onSelect={handleSelect}
-  locale={es}  // español (date-fns)
-  disabled={[
-    { before: new Date() },  // bloquea fechas pasadas
-    ...diasOcupados           // bloquea fechas reservadas
-  ]}
-/>
-```
-
-### 4.4 Yet Another React Lightbox
-
-Permite ver las imágenes de habitaciones en tamaño completo al hacer click:
-
-```jsx
-<Lightbox
-  open={lightboxAbierto}
-  close={() => setLightboxAbierto(false)}
-  slides={imagenes.map(img => ({ src: img }))}
-/>
-```
-
----
-
-## 5. Base de Datos
-
-### 5.1 Modelo Relacional
-
-```
-cliente ──────── reserva ──────── habitacion ──────── sede
-                                       │                │
-                              imagen_habitacion    imagen_sede
-                              
-administrador ──── admin_sede ──── sede
-```
-
-### 5.2 Consultas con JOIN
-
-Para traer información de varias tablas en una sola consulta:
+Ejecuta en pgAdmin **después** de `database.sql`. Borra reservas, clientes y administradores existentes y crea `admin@gmail.com` y `cliente@gmail.com`, ambos con contraseña `1234`:
 
 ```sql
-SELECT r.*, 
-  c.nombre AS nombre_cliente,
-  h.numero AS numero_habitacion,
-  s.nombre AS nombre_sede
+BEGIN;
+
+DELETE FROM reserva;
+DELETE FROM admin_sede;
+DELETE FROM cliente;
+DELETE FROM administrador;
+
+ALTER TABLE reserva       ALTER COLUMN id_reserva       RESTART WITH 1;
+ALTER TABLE cliente       ALTER COLUMN id_cliente       RESTART WITH 1;
+ALTER TABLE administrador ALTER COLUMN id_administrador RESTART WITH 1;
+
+INSERT INTO administrador (nombre, apellido, contraseña, telefono, correo, documento)
+VALUES ('Admin', 'Prisma',
+        '$2b$10$cfIgXMVwipaIWxChUi2UPOk7dX7S.MhbCQMBvo/4ArFefTYEeq4pC',
+        '3000000000', 'admin@gmail.com', '1000000001');
+
+INSERT INTO admin_sede (id_admin, id_sede)
+SELECT a.id_administrador, s.id_sede
+FROM administrador a, sede s
+WHERE a.correo = 'admin@gmail.com';
+
+INSERT INTO cliente (nombre, apellido, contraseña, telefono, correo, documento)
+VALUES ('Cliente', 'Prueba',
+        '$2b$10$cfIgXMVwipaIWxChUi2UPOk7dX7S.MhbCQMBvo/4ArFefTYEeq4pC',
+        '3000000002', 'cliente@gmail.com', '1000000002');
+
+COMMIT;
+```
+
+> Las contraseñas **siempre** se guardan como hash bcrypt. Si insertas `1234` en texto plano el login falla, porque el backend usa `bcrypt.compare`.
+
+---
+
+## Base de datos y relaciones
+
+### Diagrama
+
+```
+cliente ───< reserva >─── habitacion >─── sede
+                              │             │
+                    imagen_habitacion   imagen_sede
+
+administrador ───< admin_sede >─── sede
+```
+
+`───<` significa "uno a muchos".
+
+### Tablas
+
+| Tabla               | Descripción                         | Campos clave                                                                                                                          |
+| ------------------- | ----------------------------------- | ------------------------------------------------------------------------------------------------------------------------------------- |
+| `cliente`           | Huéspedes registrados               | `id_cliente` (PK), `correo` (UNIQUE), `documento` (UNIQUE), `contraseña` (hash)                                                       |
+| `administrador`     | Personal administrativo             | `id_administrador` (PK), `correo`, `documento` (UNIQUE), `contraseña` (hash)                                                          |
+| `sede`              | Hoteles de la cadena                | `id_sede` (PK), nombre, ciudad, dirección, teléfono                                                                                   |
+| `imagen_sede`       | Fotos de cada sede                  | `id_sede` (FK → sede), ruta                                                                                                           |
+| `habitacion`        | Habitaciones de una sede            | `id_habitacion` (PK), `id_sede` (FK), número, tipo, precio por noche, capacidad de personas, estado                                   |
+| `imagen_habitacion` | Fotos de cada habitación            | `id_habitacion` (FK → habitacion), ruta                                                                                               |
+| `reserva`           | Reservas hechas por clientes        | `id_reserva` (PK), `id_cliente` (FK), `id_habitacion` (FK), fechas, noches, precio total, estado, `estado_pago`, cantidad de personas |
+| `admin_sede`        | Qué administrador gestiona qué sede | `id_admin` (FK), `id_sede` (FK)                                                                                                       |
+
+### Cómo funcionan las relaciones
+
+- **Sede → Habitaciones (1:N):** una sede tiene muchas habitaciones; cada habitación pertenece a una sola sede.
+- **Sede → Imágenes (1:N)** y **Habitación → Imágenes (1:N):** varias fotos por sede/habitación. Las rutas se traen agrupadas con `array_agg`.
+- **Cliente → Reservas (1:N):** un cliente puede hacer muchas reservas.
+- **Habitación → Reservas (1:N):** una habitación puede tener muchas reservas, pero **no solapadas** en fechas (el backend lo valida).
+- **Administrador ↔ Sede (N:M):** un administrador puede gestionar varias sedes y una sede puede tener varios administradores. Se resuelve con la tabla intermedia `admin_sede`.
+
+### Integridad referencial
+
+Las llaves foráneas están activas, por lo que el orden de borrado importa: primero `reserva` y `admin_sede`, después `cliente` y `administrador`.
+
+### Consultas relevantes
+
+**JOIN para listar reservas con datos completos:**
+
+```sql
+SELECT r.*, c.nombre AS nombre_cliente, h.numero AS numero_habitacion, s.nombre AS nombre_sede
 FROM reserva r
-JOIN cliente c ON r.id_cliente = c.id_cliente
+JOIN cliente c    ON r.id_cliente = c.id_cliente
 JOIN habitacion h ON r.id_habitacion = h.id_habitacion
-JOIN sede s ON h.id_sede = s.id_sede
+JOIN sede s       ON h.id_sede = s.id_sede;
 ```
 
-### 5.3 array_agg — Agrupar imágenes
-
-Como una sede tiene múltiples imágenes, usamos `array_agg` para traerlas todas en una sola fila:
+**Agrupar imágenes en una sola fila:**
 
 ```sql
-SELECT s.*, array_agg(i.ruta_imagen_sede) as imagenes
+SELECT s.*, array_agg(i.ruta_imagen_sede) AS imagenes
 FROM sede s
 LEFT JOIN imagen_sede i ON s.id_sede = i.id_sede
-GROUP BY s.id_sede
+GROUP BY s.id_sede;
 ```
 
-Resultado:
-```json
-{
-  "nombre": "Prisma Mar Cartagena",
-  "imagenes": ["img/sedes/sede_cartagena1.jpg", "img/sedes/sede_cartagena2.jpg"]
-}
-```
-
-### 5.4 Validación de disponibilidad
-
-Para evitar reservas duplicadas en las mismas fechas:
+**Validar disponibilidad (evitar solapamientos):**
 
 ```sql
 SELECT * FROM reserva
-WHERE id_habitacion = $1
-AND estado = 'Activa'
-AND (
-  (fecha_inicio <= $2 AND fecha_fin >= $2) OR
-  (fecha_inicio <= $3 AND fecha_fin >= $3) OR
-  (fecha_inicio >= $2 AND fecha_fin <= $3)
-)
-```
-
-Esto cubre todos los casos de solapamiento de fechas.
-
----
-
-## 6. Flujos principales
-
-### 6.1 Flujo de Login
-
-```
-1. Usuario manda correo + contraseña
-2. Backend busca en tabla cliente
-3. Si no está, busca en tabla administrador
-4. Compara contraseña con bcrypt.compare()
-5. Si es válida, genera JWT con id, correo y rol
-6. Devuelve token al frontend
-7. Frontend guarda token en localStorage y Context
-8. React Router redirige según el rol
-```
-
-### 6.2 Flujo de Reserva
-
-```
-1. Cliente selecciona sede → habitación
-2. Calendario muestra fechas bloqueadas (ya reservadas)
-3. Cliente selecciona rango de fechas disponibles
-4. Frontend calcula noches y precio total
-5. Cliente confirma → backend verifica disponibilidad nuevamente
-6. Si está disponible, crea la reserva con estado_pago: "Pendiente"
-7. Redirige a "Mis Reservas"
-8. Cliente ve botón "Completar pago"
-9. Redirige a página de pago con formulario de tarjeta
-10. Al confirmar, actualiza estado_pago: "Pagado"
-```
-
-### 6.3 Flujo de imágenes
-
-```
-Imágenes antiguas (manual):
-  → Guardadas en frontend/public/img/
-  → Ruta en BD: "img/sedes/sede_cartagena1.jpg"
-  → Se sirven desde: http://localhost:5173/img/...
-
-Imágenes nuevas (admin):
-  → Subidas via Multer
-  → Guardadas en backend/uploads/
-  → Ruta en BD: "uploads/sedes/1234567890.jpg"
-  → Se sirven desde: http://localhost:5000/uploads/...
-
-getImageUrl() detecta cuál es cuál y usa la URL correcta.
+WHERE id_habitacion = $1 AND estado = 'Activa'
+AND ((fecha_inicio <= $2 AND fecha_fin >= $2)
+  OR (fecha_inicio <= $3 AND fecha_fin >= $3)
+  OR (fecha_inicio >= $2 AND fecha_fin <= $3));
 ```
 
 ---
 
-## 7. Seguridad implementada
+## Arquitectura del backend
 
-| Medida               | Descripción                                          |
-|----------------------|------------------------------------------------------|
-| bcrypt               | Contraseñas encriptadas en la BD                     |
-| JWT                  | Autenticación sin estado con expiración              |
-| Roles                | Rutas protegidas por rol en backend y frontend       |
-| Placeholders SQL     | Prevención de SQL Injection                          |
-| .env                 | Credenciales fuera del código                        |
-| Multer fileFilter    | Solo se aceptan imágenes (jpg, png, webp)            |
-| Validación de fechas | No se permiten reservas en fechas pasadas o solapadas|
+```
+Petición HTTP
+   ↓
+Router (routes/)           ¿A qué función va?
+   ↓
+Middleware (middlewares/)  ¿Hay token? ¿El rol es correcto?
+   ↓
+Controlador (controllers/) Lógica de negocio
+   ↓
+Modelo (models/)           Consultas SQL
+   ↓
+PostgreSQL
+```
+
+- **Pool de conexiones (`pg`):** mantiene conexiones abiertas y las reutiliza, en lugar de abrir una por consulta.
+- **Placeholders (`$1, $2…`):** los valores se pasan separados del SQL, lo que previene SQL Injection.
+- **Variables de entorno (`.env`):** credenciales y secretos fuera del código.
+- **Multer:** procesa `multipart/form-data` y guarda las imágenes en `uploads/`; el servidor las expone en `/uploads`.
+
+### Métodos HTTP usados
+
+| Método | Uso                                                          |
+| ------ | ------------------------------------------------------------ |
+| GET    | Consultar datos                                              |
+| POST   | Crear (login, registro, reservas, sedes)                     |
+| PUT    | Reemplazar un recurso completo                               |
+| PATCH  | Cambiar solo un campo (estado de habitación, estado de pago) |
+| DELETE | Eliminar                                                     |
 
 ---
 
-## 8. Dependencias del proyecto
+## Autenticación y roles
 
-### Backend
-```
-express          → Servidor HTTP
-pg               → Conexión a PostgreSQL
-bcryptjs         → Encriptación de contraseñas
-jsonwebtoken     → Generación y verificación de JWT
-dotenv           → Variables de entorno
-cors             → Permitir peticiones del frontend
-multer           → Subida de archivos
-nodemon          → Reinicio automático en desarrollo
+- **bcryptjs:** las contraseñas se guardan como hash irreversible (`bcrypt.hash(pass, 10)`) y se verifican con `bcrypt.compare`.
+- **JWT:** al iniciar sesión el servidor entrega un token firmado con `JWT_SECRET` que contiene `id`, `correo` y `rol`, y expira a las **8 horas**. El frontend lo envía en el header `Authorization: Bearer <token>`.
+- **Login único:** un solo endpoint (`POST /api/auth/login`) busca el correo primero en `cliente` y luego en `administrador`; el rol sale de la tabla donde se encontró.
+- **Middlewares:**
+  - `verificarToken` → valida el token y llena `req.usuario` (401 si falla).
+  - `soloAdmin` / `soloCliente` → validan el rol (403 si no coincide).
+- **Frontend:** `AuthContext` guarda token y rol (también en `localStorage` para sobrevivir a recargas) y `RutaProtegida` redirige al login si no hay sesión o el rol no corresponde.
+
+---
+
+## Librerías utilizadas
+
+### Backend (`BACKEND_PRISMA`)
+
+| Librería       | Para qué se usa                                |
+| -------------- | ---------------------------------------------- |
+| `express`      | Servidor HTTP y enrutamiento                   |
+| `pg`           | Cliente de PostgreSQL (Pool)                   |
+| `bcryptjs`     | Hash y verificación de contraseñas             |
+| `jsonwebtoken` | Crear y verificar tokens JWT                   |
+| `dotenv`       | Cargar variables desde `.env`                  |
+| `cors`         | Permitir peticiones del frontend (otro puerto) |
+| `multer`       | Subida de imágenes                             |
+| `nodemon`      | Reinicio automático en desarrollo              |
+| `jest`         | Pruebas unitarias                              |
+
+### Frontend (`FRONTEND_PRISMA`)
+
+| Librería                     | Para qué se usa                                                 |
+| ---------------------------- | --------------------------------------------------------------- |
+| `react`                      | Interfaz de usuario basada en componentes                       |
+| `vite`                       | Entorno de desarrollo y empaquetado rápido                      |
+| `react-router-dom`           | Navegación entre páginas sin recargar                           |
+| `axios`                      | Peticiones HTTP al backend                                      |
+| `@mui/material`              | Componentes de interfaz (botones, cards, diálogos, formularios) |
+| `@mui/icons-material`        | Íconos                                                          |
+| `swiper`                     | Carruseles de imágenes con autoplay                             |
+| `react-leaflet` + `leaflet`  | Mapas con OpenStreetMap (sin API key)                           |
+| `react-day-picker`           | Calendario para elegir rango de fechas                          |
+| `date-fns`                   | Manejo de fechas y locale en español                            |
+| `yet-another-react-lightbox` | Visor de imágenes a pantalla completa                           |
+
+### Pruebas
+
+| Herramienta   | Tipo de prueba                           |
+| ------------- | ---------------------------------------- |
+| Jest          | Unitarias (backend)                      |
+| Postman       | Integración (API)                        |
+| Playwright    | End-to-end en Chromium, Firefox y WebKit |
+| Apache JMeter | Rendimiento y carga                      |
+| pgAdmin       | Integridad de datos                      |
+
+---
+
+## Flujos principales
+
+### Login
+
+1. El usuario envía correo y contraseña.
+2. El backend busca en `cliente` y, si no está, en `administrador`.
+3. Compara con `bcrypt.compare`.
+4. Si es válido, genera el JWT con id, correo y rol.
+5. El frontend lo guarda (Context + localStorage) y redirige según el rol.
+
+### Reserva
+
+1. El cliente elige sede → habitación (desde el listado o el detalle).
+2. El calendario bloquea fechas pasadas y fechas ya reservadas.
+3. El frontend calcula noches y total, y valida que la cantidad de personas no supere la capacidad.
+4. El backend vuelve a verificar disponibilidad y crea la reserva con `estado_pago = 'Pendiente'`.
+5. El cliente la ve en **Mis reservas**, completa el pago y pasa a `Pagado`.
+
+### Imágenes
+
+- **Imágenes iniciales:** están en `FRONTEND_PRISMA/public/img/` y la BD guarda `img/sedes/...`; se sirven desde el frontend (`:5173`).
+- **Imágenes subidas por el admin:** se guardan en `BACKEND_PRISMA/uploads/` y la BD guarda `uploads/...`; se sirven desde el backend (`:5000`).
+- La función `getImageUrl()` detecta el prefijo `uploads/` y elige la URL correcta.
+
+---
+
+## Pruebas
+
+```bash
+# Unitarias (backend)
+cd BACKEND_PRISMA
+npm test
+
+# End-to-end (desde la raíz, con backend y frontend corriendo)
+npx playwright test
 ```
 
-### Frontend
-```
-react            → Librería de interfaz de usuario
-react-router-dom → Navegación entre páginas
-axios            → Peticiones HTTP al backend
-@mui/material    → Componentes de interfaz
-@mui/icons-material → Íconos
-swiper           → Carruseles de imágenes
-react-leaflet    → Mapas con OpenStreetMap
-leaflet          → Base de react-leaflet
-react-day-picker → Calendario interactivo
-date-fns         → Utilidades de fechas (locale español)
-yet-another-react-lightbox → Visor de imágenes en pantalla completa
-```
+> Los tests E2E usan credenciales de prueba. Si recreaste los usuarios con el script de arriba, actualiza los correos/contraseñas en `e2e/*.spec.js` a `cliente@gmail.com / 1234` y `admin@gmail.com / 1234`.
+
+---
+
+## Problemas comunes
+
+| Síntoma                                                                   | Causa y solución                                                                              |
+| ------------------------------------------------------------------------- | --------------------------------------------------------------------------------------------- |
+| Login responde **500**                                                    | La columna debe llamarse exactamente `contraseña`. Recrea la BD con el `database.sql` actual. |
+| Login dice "correo o contraseña incorrectos" con usuario recién insertado | La contraseña no está en hash bcrypt. Inserta el hash, no texto plano.                        |
+| `password authentication failed`                                          | La clave en `DB_PASSWORD` del `.env` no coincide con la de PostgreSQL.                        |
+| `ECONNREFUSED` al arrancar el backend                                     | PostgreSQL apagado o `DB_HOST`/puerto incorrectos.                                            |
+| El frontend carga pero no muestra sedes                                   | El backend no está corriendo en el puerto 5000.                                               |
+| Imágenes subidas no se ven                                                | Revisa que exista `BACKEND_PRISMA/uploads/` y que el backend esté activo.                     |
+| `node_modules` o `.env` aparecen en Git                                   | El archivo debe llamarse `.gitignore` (no `.gitnore`).                                        |
+
+---
