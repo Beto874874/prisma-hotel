@@ -1,4 +1,4 @@
-# 🏨 Prisma Hotel
+# Prisma Hotel
 
 Aplicación web full-stack (stack **PERN**) para gestionar sedes, habitaciones y reservas de una cadena hotelera en Colombia. Proyecto académico de Ingeniería de Software III — Universidad Libre, Pereira.
 
@@ -89,7 +89,7 @@ cd prisma-hotel
 
 1. Clic derecho en _Databases_ → _Create_ → _Database…_ → nombre: `prisma_hotel` → _Save_.
 2. Clic derecho sobre `prisma_hotel` → _Query Tool_.
-3. Abre el archivo `database.sql` (icono de carpeta), ejecútalo con el botón ▶.
+3. Abre el archivo `database.sql` (icono de carpeta) y ejecútalo con el botón de Play (F5).
 
 **Opción B — terminal**
 
@@ -98,7 +98,7 @@ psql -U postgres -c "CREATE DATABASE prisma_hotel;"
 psql -U postgres -d prisma_hotel -f database.sql
 ```
 
-El script crea todas las tablas y carga datos iniciales: 3 sedes, 9 habitaciones, sus imágenes y un administrador.
+El script crea todas las tablas y carga los datos iniciales: 3 sedes, 9 habitaciones, sus imágenes, un administrador y un cliente de prueba. Es un solo archivo y se puede ejecutar varias veces: borra y recrea las tablas cada vez.
 
 ### 3. Configurar y arrancar el backend
 
@@ -146,49 +146,14 @@ Abre **http://localhost:5173** en el navegador.
 
 ## Usuarios de prueba
 
-El `database.sql` crea un administrador:
+El script `database.sql` ya crea los dos usuarios, por lo que no hace falta registrar nada para empezar a probar:
 
-| Rol           | Correo               | Contraseña |
-| ------------- | -------------------- | ---------- |
-| Administrador | juanaaa874@gmail.com | 874874     |
+| Rol           | Correo            | Contraseña |
+| ------------- | ----------------- | ---------- |
+| Administrador | admin@gmail.com   | 1234       |
+| Cliente       | cliente@gmail.com | 1234       |
 
-Los clientes se crean desde la pantalla de **registro** de la app.
-
-### Dejar un solo cliente y un solo administrador (opcional)
-
-Ejecuta en pgAdmin **después** de `database.sql`. Borra reservas, clientes y administradores existentes y crea `admin@gmail.com` y `cliente@gmail.com`, ambos con contraseña `1234`:
-
-```sql
-BEGIN;
-
-DELETE FROM reserva;
-DELETE FROM admin_sede;
-DELETE FROM cliente;
-DELETE FROM administrador;
-
-ALTER TABLE reserva       ALTER COLUMN id_reserva       RESTART WITH 1;
-ALTER TABLE cliente       ALTER COLUMN id_cliente       RESTART WITH 1;
-ALTER TABLE administrador ALTER COLUMN id_administrador RESTART WITH 1;
-
-INSERT INTO administrador (nombre, apellido, contraseña, telefono, correo, documento)
-VALUES ('Admin', 'Prisma',
-        '$2b$10$cfIgXMVwipaIWxChUi2UPOk7dX7S.MhbCQMBvo/4ArFefTYEeq4pC',
-        '3000000000', 'admin@gmail.com', '1000000001');
-
-INSERT INTO admin_sede (id_admin, id_sede)
-SELECT a.id_administrador, s.id_sede
-FROM administrador a, sede s
-WHERE a.correo = 'admin@gmail.com';
-
-INSERT INTO cliente (nombre, apellido, contraseña, telefono, correo, documento)
-VALUES ('Cliente', 'Prueba',
-        '$2b$10$cfIgXMVwipaIWxChUi2UPOk7dX7S.MhbCQMBvo/4ArFefTYEeq4pC',
-        '3000000002', 'cliente@gmail.com', '1000000002');
-
-COMMIT;
-```
-
-> Las contraseñas **siempre** se guardan como hash bcrypt. Si insertas `1234` en texto plano el login falla, porque el backend usa `bcrypt.compare`.
+> Las contraseñas se guardan siempre como hash bcrypt. Si insertas un usuario a mano con la contraseña en texto plano, el login falla porque el backend usa `bcrypt.compare`. Los demás clientes se pueden crear desde la pantalla de registro de la app.
 
 ---
 
@@ -390,7 +355,7 @@ npm test
 npx playwright test
 ```
 
-> Los tests E2E usan credenciales de prueba. Si recreaste los usuarios con el script de arriba, actualiza los correos/contraseñas en `e2e/*.spec.js` a `cliente@gmail.com / 1234` y `admin@gmail.com / 1234`.
+> Los tests E2E usan credenciales de prueba. Asegúrate de que los correos y contraseñas en `e2e/*.spec.js` coincidan con los usuarios de `database.sql`: `cliente@gmail.com / 1234` y `admin@gmail.com / 1234`.
 
 ---
 
