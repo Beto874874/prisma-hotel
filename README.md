@@ -48,6 +48,7 @@ prisma-hotel/
 │   ├── utils/            # calculos.js (noches, totales)
 │   ├── tests/            # Pruebas unitarias (Jest)
 │   ├── uploads/          # Imágenes subidas por el admin (se crea al usar la app)
+│   ├── Dockerfile
 │   └── index.js          # Punto de entrada del servidor
 ├── FRONTEND_PRISMA/
 │   └── src/
@@ -58,12 +59,45 @@ prisma-hotel/
 │       └── theme.js      # Tema de Material UI
 ├── e2e/                  # Pruebas end-to-end (Playwright)
 ├── database.sql          # Script completo de la base de datos
+├── docker-compose.yml    # Orquesta base de datos, backend y frontend
 └── README.md
 ```
 
 ---
 
-## Requisitos previos
+## Inicio rápido con Docker (recomendado)
+
+Es la forma más fácil: no necesitas instalar Node ni PostgreSQL, solo Docker Desktop y Git.
+
+1. Instala [Docker Desktop](https://www.docker.com/products/docker-desktop/) y ábrelo (debe quedar corriendo).
+2. Clona el repositorio:
+   ```bash
+   git clone https://github.com/Beto874874/prisma-hotel.git
+   cd prisma-hotel
+   ```
+3. Levanta todo:
+   ```bash
+   docker compose up --build
+   ```
+   La primera vez tarda unos minutos porque descarga las imágenes e instala las dependencias.
+4. Abre **http://localhost:5173** y entra con `admin@gmail.com` o `cliente@gmail.com` (contraseña `1234`).
+
+Comandos útiles:
+
+| Comando                          | Qué hace                                                                            |
+| -------------------------------- | ----------------------------------------------------------------------------------- |
+| `docker compose up`              | Arranca todo (las veces siguientes)                                                 |
+| `docker compose down`            | Apaga los contenedores (los datos se conservan)                                     |
+| `docker compose down -v`         | Apaga y borra la base de datos; al volver a arrancar se recrea desde `database.sql` |
+| `docker compose logs -f backend` | Ver los logs del backend                                                            |
+
+Servicios: base de datos PostgreSQL (puerto 5432 interno), backend en http://localhost:5000 y frontend en http://localhost:5173.
+
+Si prefieres no usar Docker, sigue la instalación manual de abajo.
+
+---
+
+## Requisitos previos (instalación manual)
 
 | Herramienta        | Versión recomendada         | Verificar con    |
 | ------------------ | --------------------------- | ---------------- |
